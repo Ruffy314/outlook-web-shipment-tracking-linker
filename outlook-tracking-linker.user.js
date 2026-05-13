@@ -1,0 +1,155 @@
+// ==UserScript==
+// @name         Outlook Web Shipment Tracking Linker (improved)
+// @namespace    github.com/ruffy314/
+// @author       Ruffy314
+// @version      1.0.0
+// @description  Turn tracking numbers into links in Outlook Web
+// @match        https://outlook.office.com/*
+// @match        https://outlook.cloud.microsoft/*
+// @match        https://outlook.cloud.microsoft/mail/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    // Case-insensitive: match 1Z + 16 alphanumerics, regardless of case
+    const UPS_REGEX = /\b1Z[0-9A-Z]{16}\b/gi;
+
+    // Tags to skip (don't linkify inside these)
+    const SKIP_TAGS = new Set(['A', 'SCRIPT', 'STYLE', 'PRE', 'CODE', 'TEXTAREA']);
+
+    function isInComposeArea(node) {
+        let parent = node.parentElement;
+        while (parent) {
+            if (parent.contentEditable === 'true') return true;
+            parent = parent.parentElement;
+        }
+        return false;
+    }
+
+    function hasSkipAncestor(node) {
+        let parent = node.parentElement;
+        while (parent) {
+            if (SKIP_TAGS.has(parent.tagName)) return true;
+            parent = parent.parentElement;
+        }
+        return false;
+    }
+
+    function createLink(trackingNumber) {
+        const a = document.createElement('a');
+        a.href = `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber)}`;
+        a.textContent = trackingNumber;
+        a.target = '_blank';
+        a.rel = 'noreferrer noopener';
+        a.style.color = '#0078d4';
+        return a;
+    }
+
+    function processTextNode(node) {
+        if (!node || node.nodeType !== Node.TEXT_NODE) return;
+        if (isInComposeArea(node)) return;
+        if (hasSkipAncestor(node)) return;
+
+        const text = node.nodeValue;
+        // Quick test for performance
+        if (!UPS_REGEX.test(text)) {
+            UPS_REGEX.lastIndex = 0;
+            return;
+        }
+        UPS_REGEX.lastIndex = 0;
+
+        const fragment = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+        // Use exec loop to get match.index reliably with global regex
+        while ((match = UPS_REGEX.exec(text)) !== null) {
+            const matchText = match[0];
+            const offset = match.index;
+            // Append text before match
+            if (offset > lastIndex) {
+                fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
+            }
+            // Append link (skip if ancestor is an <a> — already checked for the node, but double-check per match)
+            // Check if match is inside an anchor by creating a temporary range and checking commonAncestorContainer
+            // (This is a cheap extra guard)
+            fragment.appendChild(createLink(matchText));
+            lastIndex = offset + matchText.length;
+        }
+        if (lastIndex === 0) return; // no replacements actually performed
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+        node.replaceWith(fragment);
+    }
+
+    // Walk text nodes under root and process them
+    function walkAndProcess(root) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+            processTextNode(node);
+        }
+    }
+
+    // Full initial scan
+    walkAndProcess(document.body);
+
+    // MutationObserver: process added nodes only, debounce to avoid high-frequency re-scans
+    let scheduled = null;
+    const pendingRoots = new Set();
+
+    function scheduleProcess() {
+        if (scheduled) return;
+        scheduled = setTimeout(() => {
+            // Process each unique root previously added
+            const roots = Array.from(pendingRoots);
+            pendingRoots.clear();
+            scheduled = null;
+            // Use requestIdleCallback when available to reduce jank
+            const runner = () => {
+                for (const root of roots) {
+                    try {
+                        // If the added node is a text node, process it directly; otherwise walk its subtree
+                        if (root.nodeType === Node.TEXT_NODE) {
+                            processTextNode(root);
+                        } else if (root.nodeType === Node.ELEMENT_NODE) {
+                            walkAndProcess(root);
+                        } else {
+                            // fallback: walk document.body
+                            walkAndProcess(document.body);
+                        }
+                    } catch (e) {
+                        // swallow individual errors to keep observer working
+                        console.error('UPS linker processing error', e);
+                    }
+                }
+            };
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(runner, { timeout: 500 });
+            } else {
+                // run on next macrotask to batch mutations
+                setTimeout(runner, 0);
+            }
+        }, 200); // debounce window (200ms)
+    }
+
+    const observer = new MutationObserver((records) => {
+        for (const record of records) {
+            // Prefer addedNodes to limit work
+            if (record.addedNodes && record.addedNodes.length) {
+                for (const node of record.addedNodes) {
+                    // Skip nodes that are clearly inside skip tags
+                    if (node.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has(node.tagName)) continue;
+                    pendingRoots.add(node);
+                }
+            } else {
+                // If no addedNodes (attribute changes etc.), schedule a light re-scan of the target
+                if (record.target) pendingRoots.add(record.target);
+            }
+        }
+        scheduleProcess();
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+})();
