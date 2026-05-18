@@ -2,7 +2,7 @@
 // @name         Outlook Web - Shipment Tracking Linker (DEV)
 // @namespace    github.com/ruffy314/
 // @author       Ruffy314
-// @version      1.0.0.1
+// @version      1.0.0.3
 // @description  Turn tracking numbers into links in Outlook Web
 // @match        https://outlook.office.com/*
 // @match        https://outlook.cloud.microsoft/*
@@ -86,7 +86,7 @@
     let matchFound = false;
 
     // Loop through each shipping company and process matches
-    SHIPPING_COMPANIES.forEach(({ regex, linkTemplate }) => {
+    SHIPPING_COMPANIES.filter(obj => obj?.active).forEach(({ regex, linkTemplate }) => {
       regex.lastIndex = 0; // Reset regex state
     let match;
       while ((match = regex.exec(text)) !== null) {
