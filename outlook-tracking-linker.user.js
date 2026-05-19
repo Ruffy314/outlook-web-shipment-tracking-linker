@@ -15,8 +15,33 @@
 (function () {
   'use strict';
 
-  // Case-insensitive: match 1Z + 16 alphanumerics, regardless of case
-  const UPS_REGEX = /\b1Z[0-9A-Z]{16}\b/gi;
+  // Define shipping configurations
+  const SHIPPING_COMPANIES = [
+    {
+      name: 'UPS',
+      regex: /\b1Z[0-9A-Z]{16}\b/gi,
+      linkTemplate: (trackingNumber) => `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber)}`,
+      active: true,
+    },
+    {
+      name: 'DHL',
+      regex: /\b\d{10}\b/gi, // Sample DHL tracking pattern (adjust if necessary)
+      linkTemplate: (trackingNumber) => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(trackingNumber)}&brand=DHL`,
+      active: false,
+    },
+    {
+      name: 'Amazon',
+      regex: /\bTBA[A-Z0-9]{12}\b/gi, // Sample Amazon pattern (adjust if necessary)
+      linkTemplate: (trackingNumber) => `https://www.amazon.com/progress-tracker/package/${encodeURIComponent(trackingNumber)}`,
+      active: false,
+    },
+    {
+      name: 'Time:Matters',
+      regex: /\bS\d{6}\b/gi,
+      linkTemplate: (trackingNumber) => `https://booking.time-matters.com/en-US/tracking/${encodeURIComponent(trackingNumber)}`,
+      active: true,
+    },
+  ];
 
   // Tags to skip (don't linkify inside these)
   const SKIP_TAGS = new Set(['A', 'SCRIPT', 'STYLE', 'PRE', 'CODE', 'TEXTAREA']);
@@ -39,9 +64,10 @@
     return false;
   }
 
-  function createLink(trackingNumber) {
+  // Modify createLink to accept a linkTemplate
+  function createLink(trackingNumber, linkTemplate) {
     const a = document.createElement('a');
-    a.href = `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber)}`;
+    a.href = linkTemplate(trackingNumber);
     a.textContent = trackingNumber;
     a.target = '_blank';
     a.rel = 'noreferrer noopener';
@@ -55,31 +81,30 @@
     if (hasSkipAncestor(node)) return;
 
     const text = node.nodeValue;
-    // Quick test for performance
-    if (!UPS_REGEX.test(text)) {
-      UPS_REGEX.lastIndex = 0;
-      return;
-    }
-    UPS_REGEX.lastIndex = 0;
-
     const fragment = document.createDocumentFragment();
     let lastIndex = 0;
+    let matchFound = false;
+
+    // Loop through each shipping company and process matches
+    SHIPPING_COMPANIES.filter(obj => obj?.active).forEach(({ regex, linkTemplate }) => {
+      regex.lastIndex = 0; // Reset regex state
     let match;
-    // Use exec loop to get match.index reliably with global regex
-    while ((match = UPS_REGEX.exec(text)) !== null) {
+      while ((match = regex.exec(text)) !== null) {
+        matchFound = true;
       const matchText = match[0];
       const offset = match.index;
+
       // Append text before match
       if (offset > lastIndex) {
         fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
       }
-      // Append link (skip if ancestor is an <a> — already checked for the node, but double-check per match)
-      // Check if match is inside an anchor by creating a temporary range and checking commonAncestorContainer
-      // (This is a cheap extra guard)
-      fragment.appendChild(createLink(matchText));
+
+        // Append link
+        fragment.appendChild(createLink(matchText, linkTemplate));
       lastIndex = offset + matchText.length;
     }
-    if (lastIndex === 0) return; // no replacements actually performed
+    });
+    if (!matchFound) return; // No replacements performed
     fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
     node.replaceWith(fragment);
   }
@@ -155,3 +180,4 @@
   observer.observe(document.body, { childList: true, subtree: true });
 
 })();
+
