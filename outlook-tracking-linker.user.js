@@ -2,7 +2,7 @@
 // @name         Outlook Web - Shipment Tracking Linker (DEV)
 // @namespace    github.com/ruffy314/
 // @author       Ruffy314
-// @version      1.0.0.3
+// @version      1.0.0.4
 // @description  Turn tracking numbers into links in Outlook Web
 // @match        https://outlook.office.com/*
 // @match        https://outlook.cloud.microsoft/*
@@ -21,6 +21,12 @@
       name: 'UPS',
       regex: /\b1Z[0-9A-Z]{16}\b/gi,
       linkTemplate: (trackingNumber) => `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber)}`,
+      active: true,
+    },
+    {
+      name: 'UPS weird spaces',
+      regex: /\b1Z[0-9A-Z]{3}\s+[0-9A-Z]{3}\s+[0-9A-Z]{2}\s+[0-9A-Z]{2}\s+[0-9A-Z]{4}\s+[0-9A-Z]{4}\s+\b/gi,
+      linkTemplate: (trackingNumber) => `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber.replaceAll(/\s+/g, ""))}`,
       active: true,
     },
     {
@@ -88,21 +94,21 @@
     // Loop through each shipping company and process matches
     SHIPPING_COMPANIES.filter(obj => obj?.active).forEach(({ regex, linkTemplate }) => {
       regex.lastIndex = 0; // Reset regex state
-    let match;
+      let match;
       while ((match = regex.exec(text)) !== null) {
         matchFound = true;
-      const matchText = match[0];
-      const offset = match.index;
+        const matchText = match[0];
+        const offset = match.index;
 
-      // Append text before match
-      if (offset > lastIndex) {
-        fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
-      }
+        // Append text before match
+        if (offset > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
+        }
 
         // Append link
         fragment.appendChild(createLink(matchText, linkTemplate));
-      lastIndex = offset + matchText.length;
-    }
+        lastIndex = offset + matchText.length;
+      }
     });
     if (!matchFound) return; // No replacements performed
     fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
