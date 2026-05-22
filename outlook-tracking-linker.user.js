@@ -24,6 +24,12 @@
       active: true,
     },
     {
+      name: 'UPS weird spaces',
+      regex: /\b1Z\s+[0-9A-Z]{3}\s+[0-9A-Z]{3}\s+[0-9A-Z]{2}\s+[0-9A-Z]{4}\s+[0-9A-Z]{4}\b/gi,
+      linkTemplate: (trackingNumber) => `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber.replaceAll(/\s+/g, ""))}`,
+      active: true,
+    },
+    {
       name: 'DHL',
       regex: /\b\d{10}\b/gi, // Sample DHL tracking pattern (adjust if necessary)
       linkTemplate: (trackingNumber) => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(trackingNumber)}&brand=DHL`,
@@ -88,21 +94,21 @@
     // Loop through each shipping company and process matches
     SHIPPING_COMPANIES.filter(obj => obj?.active).forEach(({ regex, linkTemplate }) => {
       regex.lastIndex = 0; // Reset regex state
-    let match;
+      let match;
       while ((match = regex.exec(text)) !== null) {
         matchFound = true;
-      const matchText = match[0];
-      const offset = match.index;
+        const matchText = match[0];
+        const offset = match.index;
 
-      // Append text before match
-      if (offset > lastIndex) {
-        fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
-      }
+        // Append text before match
+        if (offset > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
+        }
 
         // Append link
         fragment.appendChild(createLink(matchText, linkTemplate));
-      lastIndex = offset + matchText.length;
-    }
+        lastIndex = offset + matchText.length;
+      }
     });
     if (!matchFound) return; // No replacements performed
     fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
