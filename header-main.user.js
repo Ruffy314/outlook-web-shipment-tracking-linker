@@ -2,7 +2,7 @@
 // @name         Outlook Web - Shipment Tracking Linker
 // @namespace    github.com/ruffy314/
 // @author       Ruffy314
-// @version      1.0.2
+// @version      1.0.3
 // @description  Turn tracking numbers into links in Outlook Web
 // @match        https://outlook.office.com/*
 // @match        https://outlook.cloud.microsoft/*
