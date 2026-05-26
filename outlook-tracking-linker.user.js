@@ -2,7 +2,7 @@
 // @name         Outlook Web - Shipment Tracking Linker (DEV)
 // @namespace    github.com/ruffy314/
 // @author       Ruffy314
-// @version      1.0.0.4
+// @version      1.0.0.6
 // @description  Turn tracking numbers into links in Outlook Web
 // @match        https://outlook.office.com/*
 // @match        https://outlook.cloud.microsoft/*
@@ -81,46 +81,68 @@
     return a;
   }
 
-  function processTextNode(node) {
+    function processTextNode(node) {
     if (!node || node.nodeType !== Node.TEXT_NODE) return;
     if (isInComposeArea(node)) return;
     if (hasSkipAncestor(node)) return;
 
     const text = node.nodeValue;
+    const matches = [];
+
+    for (const { regex, linkTemplate, active } of SHIPPING_COMPANIES) {
+      if (!active) continue;
+      // Reset regex state (global regexes keep state)
+      regex.lastIndex = 0;
+      let m;
+      while ((m = regex.exec(text)) !== null) {
+        matches.push({
+          start: m.index,
+          end: m.index + m[0].length,
+          text: m[0],
+          linkTemplate,
+        });
+        // Safety: avoid zero-length infinite loop
+        if (m.index === regex.lastIndex) regex.lastIndex++;
+      }
+    }
+
+    if (matches.length === 0) return;
+
+    // Sort by start index, then prefer longer matches to minimize overlaps
+    matches.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+
+    // Build fragment while skipping overlaps
     const fragment = document.createDocumentFragment();
     let lastIndex = 0;
-    let matchFound = false;
 
-    // Loop through each shipping company and process matches
-    SHIPPING_COMPANIES.filter(obj => obj?.active).forEach(({ regex, linkTemplate }) => {
-      regex.lastIndex = 0; // Reset regex state
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        matchFound = true;
-        const matchText = match[0];
-        const offset = match.index;
-
-        // Append text before match
-        if (offset > lastIndex) {
-          fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
-        }
-
-        // Append link
-        fragment.appendChild(createLink(matchText, linkTemplate));
-        lastIndex = offset + matchText.length;
+    for (const match of matches) {
+      if (match.start < lastIndex) {
+        // Overlaps with a previously accepted match: skip
+        continue;
       }
-    });
-    if (!matchFound) return; // No replacements performed
-    fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      if (match.start > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.start)));
+      }
+      fragment.appendChild(createLink(match.text, match.linkTemplate));
+      lastIndex = match.end;
+    }
+    if (lastIndex < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+
     node.replaceWith(fragment);
   }
 
   // Walk text nodes under root and process them
-  function walkAndProcess(root) {
+    function walkAndProcess(root) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    const nodes = [];
     let node;
     while ((node = walker.nextNode())) {
-      processTextNode(node);
+      nodes.push(node);
+    }
+    for (const n of nodes) {
+      processTextNode(n);
     }
   }
 
@@ -131,53 +153,59 @@
   let scheduled = null;
   const pendingRoots = new Set();
 
-  function scheduleProcess() {
+    function scheduleProcess() {
     if (scheduled) return;
     scheduled = setTimeout(() => {
-      // Process each unique root previously added
       const roots = Array.from(pendingRoots);
       pendingRoots.clear();
       scheduled = null;
-      // Use requestIdleCallback when available to reduce jank
+
       const runner = () => {
         for (const root of roots) {
           try {
-            // If the added node is a text node, process it directly; otherwise walk its subtree
             if (root.nodeType === Node.TEXT_NODE) {
+              // Skip text nodes inside skip tags early
+              const parent = root.parentElement;
+              if (parent && SKIP_TAGS.has(parent.tagName)) continue;
               processTextNode(root);
             } else if (root.nodeType === Node.ELEMENT_NODE) {
               walkAndProcess(root);
-            } else {
-              // fallback: walk document.body
-              walkAndProcess(document.body);
             }
           } catch (e) {
-            // swallow individual errors to keep observer working
             console.error('UPS linker processing error', e);
           }
         }
       };
-      if (typeof requestIdleCallback === 'function') {
-        requestIdleCallback(runner, { timeout: 500 });
-      } else {
-        // run on next macrotask to batch mutations
-        setTimeout(runner, 0);
-      }
-    }, 200); // debounce window (200ms)
+
+      // Run on next macrotask to batch mutations without waiting for "idle"
+      setTimeout(runner, 0);
+    }, 100); // shorter debounce for better responsiveness
   }
 
-  const observer = new MutationObserver((records) => {
+    const observer = new MutationObserver((records) => {
     for (const record of records) {
-      // Prefer addedNodes to limit work
       if (record.addedNodes && record.addedNodes.length) {
         for (const node of record.addedNodes) {
-          // Skip nodes that are clearly inside skip tags
-          if (node.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has(node.tagName)) continue;
-          pendingRoots.add(node);
+          // Skip elements that we never want to process
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            if (SKIP_TAGS.has(node.tagName)) continue;
+            pendingRoots.add(node);
+          } else if (node.nodeType === Node.TEXT_NODE) {
+            // Skip text nodes already inside skip tags (e.g., text inside <a>)
+            const parent = node.parentElement;
+            if (parent && SKIP_TAGS.has(parent.tagName)) continue;
+            pendingRoots.add(node);
+          }
         }
-      } else {
-        // If no addedNodes (attribute changes etc.), schedule a light re-scan of the target
-        if (record.target) pendingRoots.add(record.target);
+      } else if (record.target) {
+        // Attribute changes etc. Lightly rescan if the target isn't in a skip tag
+        const t = record.target;
+        if (t.nodeType === Node.ELEMENT_NODE) {
+          if (!SKIP_TAGS.has(t.tagName)) pendingRoots.add(t);
+        } else if (t.nodeType === Node.TEXT_NODE) {
+          const parent = t.parentElement;
+          if (!parent || !SKIP_TAGS.has(parent.tagName)) pendingRoots.add(t);
+        }
       }
     }
     scheduleProcess();
