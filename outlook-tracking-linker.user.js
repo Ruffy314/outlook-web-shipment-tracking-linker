@@ -2,7 +2,7 @@
 // @name         Outlook Web - Shipment Tracking Linker (DEV)
 // @namespace    github.com/ruffy314/
 // @author       Ruffy314
-// @version      1.0.0.6
+// @version      1.0.0.7
 // @description  Turn tracking numbers into links in Outlook Web
 // @match        https://outlook.office.com/*
 // @match        https://outlook.cloud.microsoft/*
@@ -15,7 +15,14 @@
 (function () {
   'use strict';
 
-  // Define shipping configurations
+    /**
+   * @typedef {Object} ShippingCompany
+   * @property {string} name - Human-readable carrier name.
+   * @property {RegExp} regex - Pattern used to find tracking numbers for this carrier.
+   * @property {(trackingNumber: string) => string} linkTemplate - Function returning the tracking URL for a given number.
+   * @property {boolean} active - Whether matching for this carrier is enabled.
+   */
+  /** @type {ShippingCompany[]} */
   const SHIPPING_COMPANIES = [
     {
       name: 'UPS',
@@ -49,9 +56,16 @@
     },
   ];
 
-  // Tags to skip (don't linkify inside these)
+    /** Set of tag names to skip when linkifying.
+   * @type {Set<string>}
+   */
   const SKIP_TAGS = new Set(['A', 'SCRIPT', 'STYLE', 'PRE', 'CODE', 'TEXTAREA']);
 
+    /**
+   * Determine whether a node is within a compose area (contentEditable) in Outlook.
+   * @param {Node} node
+   * @returns {boolean}
+   */
   function isInComposeArea(node) {
     let parent = node.parentElement;
     while (parent) {
@@ -61,6 +75,11 @@
     return false;
   }
 
+    /**
+   * Check if the node has an ancestor with a tag that should be skipped.
+   * @param {Node} node
+   * @returns {boolean}
+   */
   function hasSkipAncestor(node) {
     let parent = node.parentElement;
     while (parent) {
@@ -70,7 +89,13 @@
     return false;
   }
 
-  // Modify createLink to accept a linkTemplate
+    // Modify createLink to accept a linkTemplate
+  /**
+   * Create an anchor for a tracking number using the provided link template.
+   * @param {string} trackingNumber
+   * @param {(trackingNumber: string) => string} linkTemplate
+   * @returns {HTMLAnchorElement}
+   */
   function createLink(trackingNumber, linkTemplate) {
     const a = document.createElement('a');
     a.href = linkTemplate(trackingNumber);
@@ -81,12 +106,20 @@
     return a;
   }
 
-    function processTextNode(node) {
+    /**
+   * Linkify tracking numbers within a single text node.
+   * Collects matches from all active carriers, resolves overlaps, and replaces the node.
+   * Safely no-ops inside compose areas and skip-tag ancestors.
+   * @param {Node} node
+   * @returns {void}
+   */
+  function processTextNode(node) {
     if (!node || node.nodeType !== Node.TEXT_NODE) return;
     if (isInComposeArea(node)) return;
     if (hasSkipAncestor(node)) return;
 
     const text = node.nodeValue;
+    /** @type {Array<{start: number, end: number, text: string, linkTemplate: (trackingNumber: string) => string}>} */
     const matches = [];
 
     for (const { regex, linkTemplate, active } of SHIPPING_COMPANIES) {
@@ -133,9 +166,15 @@
     node.replaceWith(fragment);
   }
 
-  // Walk text nodes under root and process them
-    function walkAndProcess(root) {
+    // Walk text nodes under root and process them
+  /**
+   * Collect text nodes beneath a root and process them after collection to avoid walker invalidation.
+   * @param {Node} root
+   * @returns {void}
+   */
+  function walkAndProcess(root) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    /** @type {Node[]} */
     const nodes = [];
     let node;
     while ((node = walker.nextNode())) {
@@ -149,11 +188,20 @@
   // Full initial scan
   walkAndProcess(document.body);
 
-  // MutationObserver: process added nodes only, debounce to avoid high-frequency re-scans
+    // MutationObserver: process added nodes only, debounce to avoid high-frequency re-scans
+  /** Handle for the debounce timer. */
+  /** @type {number | null} */
   let scheduled = null;
+  /** Set of nodes queued for processing. */
+  /** @type {Set<Node>} */
   const pendingRoots = new Set();
 
-    function scheduleProcess() {
+    /**
+   * Debounced processing scheduler for pending roots queued by the MutationObserver.
+   * Batches work and runs it on the next macrotask.
+   * @returns {void}
+   */
+  function scheduleProcess() {
     if (scheduled) return;
     scheduled = setTimeout(() => {
       const roots = Array.from(pendingRoots);
@@ -182,7 +230,8 @@
     }, 100); // shorter debounce for better responsiveness
   }
 
-    const observer = new MutationObserver((records) => {
+  /** @type {MutationObserver} */
+  const observer = new MutationObserver((/** @type {MutationRecord[]} */ records) => {
     for (const record of records) {
       if (record.addedNodes && record.addedNodes.length) {
         for (const node of record.addedNodes) {
