@@ -2,7 +2,7 @@
 // @name         Outlook Web - Shipment Tracking Linker
 // @namespace    github.com/ruffy314/
 // @author       Ruffy314
-// @version      1.0.4
+// @version      1.0.5
 // @description  Turn tracking numbers into links in Outlook Web
 // @match        https://outlook.office.com/*
 // @match        https://outlook.cloud.microsoft/*
@@ -52,6 +52,12 @@
       name: 'Time:Matters',
       regex: /\bS\d{6}\b/gi,
       linkTemplate: (trackingNumber) => `https://booking.time-matters.com/en-US/tracking/${encodeURIComponent(trackingNumber)}`,
+      active: true,
+    },
+    {
+      name: 'Time:Matters written by idiots',
+      regex: /\b(S\d{6})[A-Z]+\b/gi,
+      linkTemplate: (trackingNumber) => `https://booking.time-matters.com/en-US/tracking/${encodeURIComponent(trackingNumber.slice(0, 7))}`,
       active: true,
     },
   ];
