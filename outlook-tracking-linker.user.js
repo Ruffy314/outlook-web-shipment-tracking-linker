@@ -2,7 +2,7 @@
 // @name         Outlook Web - Shipment Tracking Linker
 // @namespace    github.com/ruffy314/
 // @author       Ruffy314
-// @version      1.0.5
+// @version      1.0.6
 // @description  Turn tracking numbers into links in Outlook Web
 // @match        https://outlook.office.com/*
 // @match        https://outlook.cloud.microsoft/*
@@ -41,6 +41,12 @@
       regex: /\b\d{10}\b/gi, // Sample DHL tracking pattern (adjust if necessary)
       linkTemplate: (trackingNumber) => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(trackingNumber)}&brand=DHL`,
       active: false,
+    },
+    {
+      name: 'DHL Domestic JJD JVGL',
+      regex: /\bJJD\d{16,18}\b|\bJVGL\d{15,17}\b/gi, // Sample DHL tracking pattern (adjust if necessary)
+      linkTemplate: (trackingNumber) => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(trackingNumber)}`,
+      active: true,
     },
     {
       name: 'Amazon',
